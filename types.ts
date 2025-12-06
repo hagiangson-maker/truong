@@ -1,3 +1,4 @@
+
 export interface Position {
   x: number;
   y: number;
@@ -23,6 +24,8 @@ export interface Bullet {
   y: number;
   angle: number;
   distanceTraveled: number;
+  penetration: number;
+  hitIds: number[]; // Track zombies hit to prevent multi-frame hits on same target
 }
 
 export interface Zombie {
@@ -34,6 +37,8 @@ export interface Zombie {
   maxHealth: number;
   attackFrame: number;
   lastTakenDamageTime: number;
+  isBoss?: boolean;
+  freezeTimer?: number; // Time until unfreeze
 }
 
 export interface Diamond {
@@ -41,6 +46,7 @@ export interface Diamond {
   x: number;
   y: number;
   value: number;
+  isAttracted?: boolean;
 }
 
 export interface Bomb {
@@ -49,17 +55,49 @@ export interface Bomb {
   y: number;
 }
 
-export type SkillType = 'autoHeal' | 'spinningAxes' | 'laser' | 'defense';
+export interface Magnet {
+  id: number;
+  x: number;
+  y: number;
+}
+
+export type SkillType = 'autoHeal' | 'spinningAxes' | 'laser' | 'defense' | 'weapon' | 'freezeNova' | 'shockwave' | 'godMode' | 'apocalypse';
 
 export interface SkillState {
   autoHeal: number;
   spinningAxes: number;
   laser: number;
   defense: number;
+  weapon: number;
+  freezeNova: number;
+  shockwave: number;
+  godMode: number;
+  apocalypse: number;
 }
 
 export interface GameConfig {
   mapWidth: number;
   mapHeight: number;
   treeCount: number;
+}
+
+export interface User {
+  username: string;
+  isAdmin: boolean;
+  isLoggedIn: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  sender: string;
+  text: string;
+  timestamp: number;
+  isAdmin?: boolean;
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  username: string;
+  score: number;
+  diamonds: number;
 }
