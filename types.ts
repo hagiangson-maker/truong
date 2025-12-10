@@ -49,6 +49,14 @@ export interface Diamond {
   isAttracted?: boolean;
 }
 
+export interface Coin {
+  id: number;
+  x: number;
+  y: number;
+  value: number;
+  isAttracted?: boolean;
+}
+
 export interface Bomb {
   id: number;
   x: number;
@@ -61,7 +69,7 @@ export interface Magnet {
   y: number;
 }
 
-export type SkillType = 'autoHeal' | 'spinningAxes' | 'laser' | 'defense' | 'weapon' | 'freezeNova' | 'shockwave' | 'godMode' | 'apocalypse';
+export type SkillType = 'autoHeal' | 'spinningAxes' | 'laser' | 'defense' | 'weapon' | 'freezeNova' | 'shockwave' | 'godMode' | 'apocalypse' | 'chainLightning' | 'poisonGas' | 'blackHole' | 'meteorShower';
 
 export interface SkillState {
   autoHeal: number;
@@ -73,6 +81,10 @@ export interface SkillState {
   shockwave: number;
   godMode: number;
   apocalypse: number;
+  chainLightning: number;
+  poisonGas: number;
+  blackHole: number;
+  meteorShower: number;
 }
 
 export interface GameConfig {

@@ -1,14 +1,16 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
-import { PLAYER_MAX_HEALTH, SKILLS_CONFIG, LEVEL_MILESTONES, MOCK_LEADERBOARD } from '../constants';
+import { PLAYER_MAX_HEALTH, SKILLS_CONFIG, LEVEL_MILESTONES } from '../constants';
 import { SkillState, SkillType, User, ChatMessage } from '../types';
+import { initAudio } from '../audio';
 
 interface UIProps {
   skinColor: string;
   health: number;
   score: number;
   diamonds: number;
+  coins: number;
+  onTopUp: () => void;
   bestKills: number;
   bestDiamonds: number;
   isGameOver: boolean;
@@ -18,7 +20,7 @@ interface UIProps {
   showLevelUp: boolean;
   skillOptions: SkillType[];
   currentSkills: SkillState;
-  onSelectSkill: (skill: SkillType) => void;
+  onSelectSkill: (skill: SkillType, cost?: number) => void;
   user: User;
   onLogin: (username: string, isAdmin: boolean) => void;
 }
@@ -28,6 +30,8 @@ const UI: React.FC<UIProps> = ({
   health, 
   score, 
   diamonds,
+  coins,
+  onTopUp,
   bestKills,
   bestDiamonds,
   isGameOver, 
@@ -56,8 +60,6 @@ const UI: React.FC<UIProps> = ({
   const [activeTab, setActiveTab] = useState<'menu' | 'chat' | 'leaderboard'>('menu');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
       { id: '1', sender: 'System', text: 'Welcome to Forest Suviral Global Chat!', timestamp: Date.now() },
-      { id: '2', sender: 'ZombieSlayer99', text: 'Anyone found the boss yet?', timestamp: Date.now() - 50000 },
-      { id: '3', sender: 'NoobMaster', text: 'How do I unlock the laser?', timestamp: Date.now() - 20000 },
   ]);
   const [chatInput, setChatInput] = useState('');
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -99,7 +101,6 @@ const UI: React.FC<UIProps> = ({
             setLoginError('Cannot register as reserved Admin username');
             return;
         }
-        // In a real app, we would save to DB here. For now, we simulate success and login.
       }
       
       let isAdmin = false;
@@ -113,6 +114,7 @@ const UI: React.FC<UIProps> = ({
           }
       }
       
+      initAudio(); // Start Audio Context on user interaction
       onLogin(loginUser, isAdmin);
   };
 
@@ -130,21 +132,6 @@ const UI: React.FC<UIProps> = ({
 
       setChatMessages(prev => [...prev, newMessage]);
       setChatInput('');
-
-      // Simulate Bot Reply
-      if (Math.random() > 0.7) {
-          setTimeout(() => {
-              const bots = ['CosmicRay', 'AlphaWolf', 'ForestGump', 'PixelKnight', 'ShadowNinja'];
-              const replies = ['Nice!', 'Run!!', 'I need healing', 'Lol', 'Camping mid'];
-              const botMsg: ChatMessage = {
-                  id: (Date.now() + 1).toString(),
-                  sender: bots[Math.floor(Math.random() * bots.length)],
-                  text: replies[Math.floor(Math.random() * replies.length)],
-                  timestamp: Date.now()
-              };
-              setChatMessages(prev => [...prev, botMsg]);
-          }, 1000 + Math.random() * 2000);
-      }
   };
 
   if (!user.isLoggedIn) {
@@ -229,11 +216,29 @@ const UI: React.FC<UIProps> = ({
   // Get active skills for HUD
   const activeSkills = (Object.keys(currentSkills) as SkillType[]).filter(s => currentSkills[s] > 0);
 
-  // Prepare Leaderboard Data
+  // Prepare Leaderboard Data (Single player mode)
   const fullLeaderboard = [
-      { rank: 0, username: user.username, score: score, diamonds: diamonds }, // Current User (rank calc later)
-      ...MOCK_LEADERBOARD
-  ].sort((a, b) => b.score - a.score).map((entry, idx) => ({ ...entry, rank: idx + 1 })).slice(0, 50);
+      { rank: 1, username: user.username, score: score, diamonds: diamonds }
+  ];
+
+  const getSkillIcon = (skill: SkillType) => {
+    switch(skill) {
+      case 'autoHeal': return '❤️';
+      case 'spinningAxes': return '🪓';
+      case 'laser': return '⚡';
+      case 'defense': return '🛡️';
+      case 'weapon': return '🔫';
+      case 'freezeNova': return '❄️';
+      case 'shockwave': return '💥';
+      case 'chainLightning': return '🌩️';
+      case 'poisonGas': return '☠️';
+      case 'blackHole': return '⚫';
+      case 'meteorShower': return '☄️';
+      case 'godMode': return '👑';
+      case 'apocalypse': return '☢️';
+      default: return '?';
+    }
+  };
 
   return (
     <>
@@ -264,6 +269,21 @@ const UI: React.FC<UIProps> = ({
                   </div>
               </div>
           )}
+        </div>
+
+        {/* Top Right: Coin HUD */}
+        <div className="fixed top-6 right-6 pointer-events-auto flex items-center gap-2">
+            <div className="bg-black/60 backdrop-blur-md p-2 px-4 rounded-full border border-yellow-500/50 shadow-xl flex items-center gap-2">
+                <span className="text-xl">🪙</span>
+                <span className="text-yellow-400 font-bold font-mono text-xl">{coins}</span>
+            </div>
+            <button 
+                onClick={onTopUp}
+                className="bg-yellow-600 hover:bg-yellow-500 text-white font-bold w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-110"
+                title="Top Up Coins"
+            >
+                +
+            </button>
         </div>
 
         {/* Bottom Right: Stacked UI */}
@@ -304,15 +324,7 @@ const UI: React.FC<UIProps> = ({
                 {activeSkills.map(skill => (
                   <div key={skill} className={`flex flex-col items-center bg-black/60 backdrop-blur-md p-2 rounded-lg border ${SKILLS_CONFIG[skill].adminOnly ? 'border-yellow-500' : 'border-white/10'}`}>
                     <div className="w-8 h-8 flex items-center justify-center text-lg bg-gray-800 rounded-lg mb-1 border border-white/5">
-                        {skill === 'autoHeal' && '❤️'}
-                        {skill === 'spinningAxes' && '🪓'}
-                        {skill === 'laser' && '⚡'}
-                        {skill === 'defense' && '🛡️'}
-                        {skill === 'weapon' && '🔫'}
-                        {skill === 'freezeNova' && '❄️'}
-                        {skill === 'shockwave' && '💥'}
-                        {skill === 'godMode' && '👑'}
-                        {skill === 'apocalypse' && '☢️'}
+                        {getSkillIcon(skill)}
                     </div>
                     <div className="text-[8px] font-bold text-yellow-500 uppercase tracking-wider">
                       Lv.{currentSkills[skill]}
@@ -460,38 +472,46 @@ const UI: React.FC<UIProps> = ({
       {showLevelUp && (
         <div className="fixed inset-0 z-[150] bg-black/80 flex flex-col items-center justify-center backdrop-blur-md pointer-events-auto">
              <h2 className="text-4xl font-black text-yellow-400 mb-8 uppercase tracking-widest animate-bounce">Level Up!</h2>
-             <div className="flex flex-wrap justify-center gap-6 max-w-5xl">
-                {skillOptions.map(skill => {
+             <div className="flex flex-wrap justify-center gap-6 max-w-6xl">
+                {skillOptions.map((skill, index) => {
                     const config = SKILLS_CONFIG[skill];
                     const nextLvl = currentSkills[skill] + 1;
-                    const isOP = config.adminOnly;
+                    const isPremium = config.isPremium; // Use config property instead of index
+                    const canAfford = !isPremium || coins >= 2;
                     
                     return (
                         <button 
                             key={skill}
-                            onClick={() => onSelectSkill(skill)}
+                            disabled={isPremium && !canAfford}
+                            onClick={() => onSelectSkill(skill, isPremium ? 2 : 0)}
                             className={`
-                                relative p-6 rounded-2xl w-64 flex flex-col items-center text-center transition-all hover:scale-105 shadow-xl group border-2
-                                ${isOP ? 'bg-gray-900 border-yellow-500 hover:border-yellow-300' : 'bg-gray-800 hover:bg-gray-700 border-yellow-500/50 hover:border-yellow-400'}
+                                relative p-6 rounded-2xl w-60 flex flex-col items-center text-center transition-all shadow-xl group border-2
+                                ${isPremium 
+                                    ? (canAfford ? 'bg-gradient-to-br from-gray-900 to-yellow-900 border-yellow-400 hover:scale-105 cursor-pointer' : 'bg-gray-900 border-gray-700 opacity-50 cursor-not-allowed grayscale')
+                                    : 'bg-gray-800 hover:bg-gray-700 border-yellow-500/50 hover:border-yellow-400 hover:scale-105'
+                                }
                             `}
                         >
-                            {isOP && <div className="absolute top-2 right-2 text-yellow-400 text-xs font-bold border border-yellow-400 px-1 rounded">ADMIN</div>}
+                            {isPremium && (
+                                <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-yellow-500 text-black font-black px-3 py-1 rounded-full text-xs shadow-lg z-10 whitespace-nowrap">
+                                    PREMIUM - 2 COINS
+                                </div>
+                            )}
+
                             <div className="text-3xl mb-3 group-hover:animate-spin">
-                                {skill === 'autoHeal' && '❤️'}
-                                {skill === 'spinningAxes' && '🪓'}
-                                {skill === 'laser' && '⚡'}
-                                {skill === 'defense' && '🛡️'}
-                                {skill === 'weapon' && '🔫'}
-                                {skill === 'freezeNova' && '❄️'}
-                                {skill === 'shockwave' && '💥'}
-                                {skill === 'godMode' && '👑'}
-                                {skill === 'apocalypse' && '☢️'}
+                                {getSkillIcon(skill)}
                             </div>
-                            <h3 className={`text-xl font-bold mb-2 ${isOP ? 'text-yellow-400' : 'text-white'}`}>{config.name}</h3>
+                            <h3 className={`text-xl font-bold mb-2 ${isPremium ? 'text-yellow-300' : 'text-white'}`}>{config.name}</h3>
                             <div className="text-xs font-bold bg-yellow-900/50 text-yellow-500 px-2 py-1 rounded mb-4">
                                 Level {nextLvl} / {config.maxLevel}
                             </div>
                             <p className="text-sm text-gray-400">{config.description}</p>
+                            
+                            {isPremium && !canAfford && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-2xl">
+                                    <span className="text-red-500 font-bold uppercase border-2 border-red-500 px-2 py-1 transform -rotate-12">Not Enough Coins</span>
+                                </div>
+                            )}
                         </button>
                     );
                 })}

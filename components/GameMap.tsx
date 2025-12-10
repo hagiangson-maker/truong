@@ -7,9 +7,11 @@ import {
     PLAYER_MAX_HEALTH, ZOMBIE_DAMAGE, DAMAGE_COOLDOWN_MS, PLAYER_RADIUS,
     GAME_SCALE, BOMB_COUNT, BOMB_RADIUS, MAGNET_COUNT, MAGNET_RADIUS,
     PICKUP_RADIUS, DIAMOND_RADIUS, FIRE_RATE_MS, SKILLS_CONFIG, ZOMBIE_MAX_HEALTH,
-    ZOMBIE_SPAWN_INTERVAL, BOSS_HP, BOSS_DAMAGE, BOSS_SCALE, BOSS_MILESTONE_INTERVAL
+    ZOMBIE_SPAWN_INTERVAL, BOSS_HP, BOSS_DAMAGE, BOSS_SCALE, BOSS_MILESTONE_INTERVAL,
+    COIN_RADIUS
 } from '../constants';
-import { PlayerState, Tree, Position, Bullet, Zombie, Diamond, Bomb, Magnet, SkillState } from '../types';
+import { PlayerState, Tree, Position, Bullet, Zombie, Diamond, Bomb, Magnet, SkillState, Coin } from '../types';
+import { playShoot, playZombieHit, playGemPickup, playExplosion, playSkillSound, playPlayerHit, playCoinPickup } from '../audio';
 
 interface GameMapProps {
   initialSkin: string;
@@ -17,6 +19,7 @@ interface GameMapProps {
   onGameOver: () => void;
   onZombieKilled: (count?: number) => void;
   onDiamondCollected: (count: number) => void;
+  onCoinCollected: (amount: number) => void;
   skills: SkillState;
   isPaused: boolean;
 }
@@ -36,6 +39,7 @@ const GameMap: React.FC<GameMapProps> = ({
   onGameOver,
   onZombieKilled,
   onDiamondCollected,
+  onCoinCollected,
   skills,
   isPaused
 }) => {
@@ -55,10 +59,15 @@ const GameMap: React.FC<GameMapProps> = ({
   const bulletsRef = useRef<Bullet[]>([]);
   const zombiesRef = useRef<Zombie[]>([]);
   const diamondsRef = useRef<Diamond[]>([]);
+  const coinsRef = useRef<Coin[]>([]);
   const bombsRef = useRef<Bomb[]>([]);
   const magnetsRef = useRef<Magnet[]>([]);
   const particlesRef = useRef<Particle[]>([]);
   
+  // Skill Entities
+  const gasParticlesRef = useRef<{x: number, y: number, life: number}[]>([]);
+  const blackHolesRef = useRef<{x: number, y: number, life: number}[]>([]);
+
   // Game Logic Refs
   const healthRef = useRef(PLAYER_MAX_HEALTH);
   const lastSpawnTimeRef = useRef(0);
@@ -74,6 +83,10 @@ const GameMap: React.FC<GameMapProps> = ({
   const lastFreezeTimeRef = useRef(0);
   const lastShockwaveTimeRef = useRef(0);
   const lastApocalypseTimeRef = useRef(0);
+  const lastChainTimeRef = useRef(0);
+  const lastGasTimeRef = useRef(0);
+  const lastBlackHoleTimeRef = useRef(0);
+  const lastMeteorTimeRef = useRef(0);
   
   // Input Refs
   const keysPressed = useRef<{ [key: string]: boolean }>({});
@@ -200,6 +213,14 @@ const GameMap: React.FC<GameMapProps> = ({
           x, y, value: 1
       };
       diamondsRef.current.push(newDiamond);
+  };
+  
+  const spawnCoin = (x: number, y: number) => {
+      const newCoin: Coin = {
+          id: Date.now() + Math.random(),
+          x, y, value: 1
+      };
+      coinsRef.current.push(newCoin);
   };
 
   const spawnParticles = (x: number, y: number, color: string, count: number) => {
@@ -369,6 +390,17 @@ const GameMap: React.FC<GameMapProps> = ({
     ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(4, -3); ctx.lineTo(0, 0); ctx.lineTo(-4, -3); ctx.closePath(); ctx.fill();
     ctx.restore();
   };
+  
+  const drawCoin = (ctx: CanvasRenderingContext2D, c: Coin) => {
+      ctx.save();
+      ctx.translate(c.x, c.y);
+      ctx.shadowColor = '#eab308'; ctx.shadowBlur = 10;
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath(); ctx.arc(0,0, COIN_RADIUS, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#b45309'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = '#b45309'; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center'; ctx.textBaseline='middle'; ctx.fillText('$', 0, 1);
+      ctx.restore();
+  };
 
   const drawBomb = (ctx: CanvasRenderingContext2D, b: Bomb) => {
       ctx.save();
@@ -401,6 +433,35 @@ const GameMap: React.FC<GameMapProps> = ({
           ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
           ctx.fill();
           ctx.globalAlpha = 1.0;
+      });
+  };
+
+  const drawGas = (ctx: CanvasRenderingContext2D) => {
+      gasParticlesRef.current.forEach(p => {
+          ctx.globalAlpha = 0.4 * p.life;
+          ctx.fillStyle = '#10b981';
+          ctx.beginPath(); ctx.arc(p.x, p.y, 30, 0, Math.PI*2); ctx.fill();
+          ctx.globalAlpha = 1.0;
+      });
+  };
+
+  const drawBlackHoles = (ctx: CanvasRenderingContext2D) => {
+      blackHolesRef.current.forEach(bh => {
+         ctx.save();
+         ctx.translate(bh.x, bh.y);
+         const scale = 1 + Math.sin(Date.now()/100)*0.1;
+         ctx.scale(scale, scale);
+         
+         // Event Horizon
+         ctx.fillStyle = 'black';
+         ctx.shadowColor = '#a855f7'; ctx.shadowBlur = 20;
+         ctx.beginPath(); ctx.arc(0,0, 50, 0, Math.PI*2); ctx.fill();
+         
+         // Accretion Disc
+         ctx.strokeStyle = '#d8b4fe'; ctx.lineWidth = 4;
+         ctx.beginPath(); ctx.arc(0,0, 60, 0, Math.PI*2); ctx.stroke();
+         
+         ctx.restore();
       });
   };
 
@@ -473,6 +534,7 @@ const GameMap: React.FC<GameMapProps> = ({
                   z.freezeTimer = duration;
               });
               spawnParticles(newX, newY, '#06b6d4', 30);
+              playSkillSound('freeze');
           }
       }
 
@@ -487,6 +549,61 @@ const GameMap: React.FC<GameMapProps> = ({
                   z.y += Math.sin(ang) * pushDist;
               });
               spawnParticles(newX, newY, '#ffffff', 30);
+              playSkillSound('shock');
+          }
+      }
+
+      // SKILL: POISON GAS
+      if (skills.poisonGas > 0) {
+          if (timestamp - lastGasTimeRef.current > 200) {
+              lastGasTimeRef.current = timestamp;
+              gasParticlesRef.current.push({ x: newX, y: newY, life: 3.0 }); // 3s life
+          }
+      }
+      gasParticlesRef.current = gasParticlesRef.current.filter(p => {
+          p.life -= 0.016; // Approx frame time 16ms
+          return p.life > 0;
+      });
+
+      // SKILL: BLACK HOLE
+      if (skills.blackHole > 0) {
+          if (timestamp - lastBlackHoleTimeRef.current > 5000) {
+              lastBlackHoleTimeRef.current = timestamp;
+              const angle = Math.random() * Math.PI * 2;
+              const dist = 200 + Math.random() * 200;
+              blackHolesRef.current.push({ 
+                  x: newX + Math.cos(angle)*dist, 
+                  y: newY + Math.sin(angle)*dist, 
+                  life: 3.0 
+              });
+              playSkillSound('shock'); // Reuse sound for now
+          }
+      }
+      blackHolesRef.current = blackHolesRef.current.filter(bh => {
+          bh.life -= 0.016;
+          return bh.life > 0;
+      });
+
+      // SKILL: METEOR SHOWER
+      if (skills.meteorShower > 0) {
+          if (timestamp - lastMeteorTimeRef.current > 3000) {
+              lastMeteorTimeRef.current = timestamp;
+              for(let i=0; i<5; i++) {
+                  setTimeout(() => {
+                      const angle = Math.random() * Math.PI * 2;
+                      const dist = 100 + Math.random() * 300;
+                      const mx = newX + Math.cos(angle)*dist;
+                      const my = newY + Math.sin(angle)*dist;
+                      playExplosion();
+                      spawnParticles(mx, my, '#ef4444', 20);
+                      // AOE Damage
+                      zombiesRef.current.forEach(z => {
+                          if (Math.hypot(z.x - mx, z.y - my) < 100) {
+                              z.health -= 50;
+                          }
+                      });
+                  }, i * 200);
+              }
           }
       }
 
@@ -501,6 +618,7 @@ const GameMap: React.FC<GameMapProps> = ({
               // Visual Flash
               ctx.fillStyle = 'white';
               ctx.fillRect(0,0, canvas.width, canvas.height);
+              playExplosion();
           }
       }
 
@@ -529,6 +647,7 @@ const GameMap: React.FC<GameMapProps> = ({
                   setHealth(Math.min(PLAYER_MAX_HEALTH, healthRef.current + 10));
                   healthRef.current = Math.min(PLAYER_MAX_HEALTH, healthRef.current + 10);
                   spawnParticles(newX, newY, '#22c55e', 10);
+                  playSkillSound('shield');
               }
           }
       }
@@ -538,6 +657,7 @@ const GameMap: React.FC<GameMapProps> = ({
           if (timestamp - lastLaserTimeRef.current > 3000) {
               lastLaserTimeRef.current = timestamp;
               isLaserActiveRef.current = true;
+              playShoot(true); // Laser sound similar to heavy shot
               setTimeout(() => { isLaserActiveRef.current = false; }, 500);
           }
           if (isLaserActiveRef.current) {
@@ -552,6 +672,43 @@ const GameMap: React.FC<GameMapProps> = ({
                    laserBeams.push({ x1: newX, y1: newY, x2: lx, y2: ly, isRed });
                }
           }
+      }
+
+      let lightningBeams: any[] = [];
+      if (skills.chainLightning > 0) {
+          if (timestamp - lastChainTimeRef.current > 1000) {
+              lastChainTimeRef.current = timestamp;
+              const maxTargets = SKILLS_CONFIG.chainLightning.levels[skills.chainLightning - 1];
+              let targetsFound = 0;
+              let currentSource = { x: newX, y: newY };
+              const hitIds: number[] = [];
+              
+              // Find chain
+              for(let i=0; i<maxTargets; i++) {
+                  let closest = null, minDist = 300;
+                  zombiesRef.current.forEach(z => {
+                      if (hitIds.includes(z.id)) return;
+                      const d = Math.hypot(z.x - currentSource.x, z.y - currentSource.y);
+                      if (d < minDist) { minDist = d; closest = z; }
+                  });
+                  if (closest) {
+                      lightningBeams.push({ x1: currentSource.x, y1: currentSource.y, x2: closest.x, y2: closest.y });
+                      currentSource = { x: closest.x, y: closest.y };
+                      hitIds.push(closest.id);
+                      closest.health -= 20;
+                      playSkillSound('electric');
+                  } else {
+                      break;
+                  }
+              }
+          }
+          // Visual fade out logic handled by rendering only frames where active, but simplicity:
+          // We will render lightning only for a few frames after trigger. 
+          // Since this runs every frame, we need state. 
+          // For simplicity, we just won't render persistent bolts here, 
+          // instead we rely on the `lightningBeams` local var which only exists on the frame it strikes. 
+          // To make it visible, let's persist it briefly.
+          // Actually, lightning is instant.
       }
 
       const axeHitboxes: any[] = [];
@@ -579,6 +736,8 @@ const GameMap: React.FC<GameMapProps> = ({
           
           bulletsRef.current.push(createB(0));
           if (skills.weapon >= 3) { bulletsRef.current.push(createB(-0.1)); bulletsRef.current.push(createB(0.1)); }
+          
+          playShoot();
       }
 
       bulletsRef.current = bulletsRef.current.filter(b => {
@@ -591,7 +750,9 @@ const GameMap: React.FC<GameMapProps> = ({
       magnetsRef.current = magnetsRef.current.filter(m => {
           if (Math.hypot(m.x - newX, m.y - newY) < PICKUP_RADIUS + MAGNET_RADIUS) {
               diamondsRef.current.forEach(d => d.isAttracted = true);
+              coinsRef.current.forEach(c => c.isAttracted = true);
               spawnParticles(newX, newY, '#3b82f6', 20);
+              playGemPickup();
               setTimeout(() => magnetsRef.current.push({ id: Date.now(), x: Math.random()*MAP_WIDTH, y: Math.random()*MAP_HEIGHT }), 30000);
               return false;
           }
@@ -611,6 +772,7 @@ const GameMap: React.FC<GameMapProps> = ({
                    return true;
                });
                if(killed > 0) { onZombieKilled(killed); spawnParticles(newX, newY, '#fbbf24', 30); }
+               playExplosion();
                setTimeout(() => bombsRef.current.push({ id: Date.now(), x: Math.random()*MAP_WIDTH, y: Math.random()*MAP_HEIGHT }), 10000);
                return false;
           }
@@ -623,10 +785,45 @@ const GameMap: React.FC<GameMapProps> = ({
           if (Math.hypot(d.x - newX, d.y - newY) < PICKUP_RADIUS) { collected += d.value; return false; }
           return true;
       });
-      if(collected > 0) { diamondsCountRef.current += collected; onDiamondCollected(diamondsCountRef.current); }
+      if(collected > 0) { 
+          diamondsCountRef.current += collected; 
+          onDiamondCollected(diamondsCountRef.current);
+          if (Math.random() > 0.5) playGemPickup(); // Reduce spam slightly
+      }
+
+      let collectedCoins = 0;
+      coinsRef.current = coinsRef.current.filter(c => {
+          if (c.isAttracted) { const a = Math.atan2(newY - c.y, newX - c.x); c.x += Math.cos(a)*15; c.y += Math.sin(a)*15; }
+          if (Math.hypot(c.x - newX, c.y - newY) < PICKUP_RADIUS) { collectedCoins += c.value; return false; }
+          return true;
+      });
+      if (collectedCoins > 0) {
+          onCoinCollected(collectedCoins);
+          playCoinPickup();
+      }
 
       // ZOMBIE UPDATE
       zombiesRef.current.forEach(z => {
+          // Physics: Pulled by Black Holes
+          blackHolesRef.current.forEach(bh => {
+              const dx = bh.x - z.x;
+              const dy = bh.y - z.y;
+              const dist = Math.hypot(dx, dy);
+              if (dist < 300) {
+                  z.x += (dx / dist) * 5;
+                  z.y += (dy / dist) * 5;
+                  if (dist < 50) z.health -= 5; // Crush damage
+              }
+          });
+
+          // Physics: Damage by Poison
+          gasParticlesRef.current.forEach(p => {
+              if (Math.hypot(p.x - z.x, p.y - z.y) < 30) {
+                 if (Math.random() > 0.9) z.health -= SKILLS_CONFIG.poisonGas.levels[skills.poisonGas - 1];
+              }
+          });
+
+
           // Freeze Logic
           if (z.freezeTimer && z.freezeTimer > 0) {
               z.freezeTimer -= 16; // Approx frame time
@@ -649,6 +846,7 @@ const GameMap: React.FC<GameMapProps> = ({
                            const dmg = (z.isBoss ? BOSS_DAMAGE : ZOMBIE_DAMAGE) * (1 - red);
                            healthRef.current -= dmg;
                            setHealth(healthRef.current);
+                           playPlayerHit();
                            if (healthRef.current <= 0) onGameOver();
                        }
                   }
@@ -666,6 +864,7 @@ const GameMap: React.FC<GameMapProps> = ({
                   z.lastTakenDamageTime = timestamp;
                   b.hitIds.push(z.id);
                   spawnParticles(z.x, z.y, '#14532d', 3);
+                  playZombieHit();
                   if(b.penetration > 0) b.penetration--; else bulletsRef.current.splice(i, 1);
                   if(z.health <= 0) break;
               }
@@ -680,6 +879,7 @@ const GameMap: React.FC<GameMapProps> = ({
                       if (skills.godMode > 0) dmg = 9999;
                       z.health -= dmg;
                       spawnParticles(z.x, z.y, '#fbbf24', 5);
+                      playZombieHit();
                   }
               }
           });
@@ -698,6 +898,7 @@ const GameMap: React.FC<GameMapProps> = ({
                       if (skills.godMode > 0) dmg *= 10;
                       z.health -= dmg;
                       spawnParticles(z.x, z.y, l.isRed ? '#ef4444' : '#06b6d4', 3);
+                      playZombieHit();
                   }
               }
           });
@@ -707,8 +908,14 @@ const GameMap: React.FC<GameMapProps> = ({
       const countBefore = zombiesRef.current.length;
       zombiesRef.current.forEach(z => { if(z.health <= 0 && z.maxHealth > -999) { 
           spawnDiamond(z.x, z.y); 
-          if(z.isBoss) for(let i=0;i<10;i++) spawnDiamond(z.x+Math.random()*40-20, z.y+Math.random()*40-20);
+          if(z.isBoss) {
+              // Drop Coins
+              for(let i=0; i<8; i++) spawnCoin(z.x+Math.random()*40-20, z.y+Math.random()*40-20);
+              // Drop extra diamonds
+              for(let i=0;i<10;i++) spawnDiamond(z.x+Math.random()*40-20, z.y+Math.random()*40-20);
+          }
           z.maxHealth = -9999; 
+          playZombieHit(); // Add extra impact for death
       }});
       zombiesRef.current = zombiesRef.current.filter(z => z.health > 0);
       if (countBefore - zombiesRef.current.length > 0) onZombieKilled(countBefore - zombiesRef.current.length);
@@ -727,10 +934,14 @@ const GameMap: React.FC<GameMapProps> = ({
          const gy = (Math.floor(newY / 500) * 500) + (Math.floor(i/5))*200;
          ctx.fillRect(gx, gy, 10, 10);
       }
+      
+      drawGas(ctx);
+      drawBlackHoles(ctx);
 
       magnetsRef.current.forEach(m => drawMagnet(ctx, m));
       bombsRef.current.forEach(b => drawBomb(ctx, b));
       diamondsRef.current.forEach(d => drawDiamond(ctx, d));
+      coinsRef.current.forEach(c => drawCoin(ctx, c));
 
       const renderList = [
           ...trees.map(t => ({ y: t.y, draw: () => drawTree(ctx, t) })),
@@ -761,6 +972,20 @@ const GameMap: React.FC<GameMapProps> = ({
           ctx.lineWidth = l.isRed ? 15 : 5; ctx.lineCap = 'round';
           ctx.shadowColor = l.isRed ? '#f87171' : '#67e8f9'; ctx.shadowBlur = 15;
           ctx.moveTo(l.x1, l.y1); ctx.lineTo(l.x2, l.y2); ctx.stroke(); ctx.shadowBlur = 0;
+      });
+      
+      // Lightning
+      lightningBeams.forEach(l => {
+         ctx.beginPath(); ctx.strokeStyle = '#facc15'; ctx.lineWidth = 3;
+         ctx.shadowColor = '#fef08a'; ctx.shadowBlur = 10;
+         ctx.moveTo(l.x1, l.y1); 
+         // Zigzag
+         const midX = (l.x1+l.x2)/2 + (Math.random()-0.5)*50;
+         const midY = (l.y1+l.y2)/2 + (Math.random()-0.5)*50;
+         ctx.lineTo(midX, midY);
+         ctx.lineTo(l.x2, l.y2);
+         ctx.stroke();
+         ctx.shadowBlur = 0;
       });
 
       bulletsRef.current.forEach(b => { ctx.fillStyle = '#fbbf24'; ctx.beginPath(); ctx.arc(b.x, b.y, BULLET_RADIUS, 0, Math.PI*2); ctx.fill(); });
