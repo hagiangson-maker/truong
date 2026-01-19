@@ -25,7 +25,7 @@ export interface Bullet {
   angle: number;
   distanceTraveled: number;
   penetration: number;
-  hitIds: number[]; // Track zombies hit to prevent multi-frame hits on same target
+  hitIds: number[];
 }
 
 export interface Zombie {
@@ -38,7 +38,7 @@ export interface Zombie {
   attackFrame: number;
   lastTakenDamageTime: number;
   isBoss?: boolean;
-  freezeTimer?: number; // Time until unfreeze
+  freezeTimer?: number;
 }
 
 export interface Diamond {
@@ -87,16 +87,11 @@ export interface SkillState {
   meteorShower: number;
 }
 
-export interface GameConfig {
-  mapWidth: number;
-  mapHeight: number;
-  treeCount: number;
-}
-
 export interface User {
   username: string;
   isAdmin: boolean;
   isLoggedIn: boolean;
+  gunDamageBonus: number;
 }
 
 export interface ChatMessage {
@@ -105,11 +100,4 @@ export interface ChatMessage {
   text: string;
   timestamp: number;
   isAdmin?: boolean;
-}
-
-export interface LeaderboardEntry {
-  rank: number;
-  username: string;
-  score: number;
-  diamonds: number;
 }
